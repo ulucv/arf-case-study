@@ -404,15 +404,10 @@ controller:
   # Plugins will be installed during Jenkins controller start
   # -- List of Jenkins plugins to install. If you don't want to install plugins, set it to `false`
   installPlugins:
-    - kubernetes:latest
-    - workflow-aggregator:latest
-    - git:latest
-    - configuration-as-code:latest
-    - job-dsl:latest
-    - pipeline-stage-view:latest
-    - role-strategy:latest
-    - github:latest
-    - docker-plugin:latest
+    - kubernetes
+    - workflow-aggregator
+    - git
+    - configuration-as-code
 
   # If set to false, Jenkins will download the minimum required version of all dependencies.
   # -- Download the minimum required version or latest version of all dependencies
@@ -521,55 +516,23 @@ controller:
     # - https://acme.org/jenkins.yaml
     # -- List of Jenkins Config as Code scripts
     configScripts:
-      security-config: |
-        jenkins:
-          systemMessage: "Welcome to Jenkins-ARF - Managed via Helm & JCasC"
-          numExecutors: 4
-          authorizationStrategy:
-            roleBased:
-              roles:
-                global:
-                  - name: "admin"
-                    description: "Jenkins Admin"
-                    permissions:
-                      - "Overall/Administer"
-                    assignments:
-                      - "admin"
-          securityRealm:
-            local:
-              allowsSignup: false
-              users:
-                - id: "admin"
-                  password: "${JENKINS_ADMIN_PASSWORD}"
-                  properties:
-                    - "apiToken"
-        unclassified:
-          location:
-            url: "http://jenkins.local"
-          email-ext:
-            adminAddress: "admin@example.com"
-
-      agent-config: |
-        jenkins:
-          clouds:
-            - kubernetes:
-                containerCapStr: "10"
-                maxRequestsPerHostStr: "32"
-                templates:
-                  - name: "default-agent"
-                    label: "jnlp"
-                    containers:
-                      - name: "jnlp"
-                        image: "jenkins/inbound-agent:latest"
-                        resourceRequestCpu: "500m"
-                        resourceRequestMemory: "512Mi"
-                        resourceLimitCpu: "1"
-                        resourceLimitMemory: "1024Mi"
-                    podRetention: "never"
-                    yamlMergeStrategy: "override"
-                    workspaceVolume:
-                      emptyDirWorkspaceVolume:
-                        memory: false
+          custom-casc: |-
+            jenkins:
+              systemMessage: "Welcome to Jenkins configured as Code!"
+              securityRealm:
+                local:
+                  allowsSignup: false
+                  users:
+                    - id: "admin"
+                      password: "admin"
+              authorizationStrategy:
+                loggedInUsersCanDoAnything:
+                  allowAnonymousRead: false
+              globalNodeProperties:
+                - envVars:
+                    env:
+                      - key: "JAVA_OPTS"
+                        value: "-Xmx512m"
 
     # Allows adding to the top-level security JCasC section. For legacy purposes, by default, the chart includes apiToken configurations
     # -- Jenkins Config as Code security-section

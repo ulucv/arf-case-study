@@ -1,0 +1,61 @@
+pipeline {
+    agent any
+    
+    environment {
+        IMAGE_TAG = "${GIT_COMMIT}"
+        DOCKER_HUB_REPOSITORY = "YOUR_DOCKER_HUB_USERNAME/YOUR_REPOSITORY_NAME"  // Replace with your Docker Hub repo
+        IMAGE_URI = "${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}"
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                script {
+                    // Clone the GitHub repository
+                    git url: 'https://github.com/YOUR_USERNAME/YOUR_REPO.git', branch: 'main'
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image using Dockerfile from the repository
+                    sh 'docker build -t ${IMAGE_URI} .'
+                }
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                script {
+                    // Use the Jenkins credentials for Docker Hub login
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        // Login to Docker Hub
+                        sh '''
+                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image to Docker Hub') {
+            steps {
+                script {
+                    // Push the Docker image to Docker Hub
+                    sh 'docker push ${IMAGE_URI}'
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Image pushed to Docker Hub successfully: ${IMAGE_URI}"
+        }
+        failure {
+            echo "Pipeline failed. Please check the logs."
+        }
+    }
+}
