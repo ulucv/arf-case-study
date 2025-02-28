@@ -1,5 +1,29 @@
 pipeline {
-    agent none  // No agents needed
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: kaniko-agent
+spec:
+  containers:
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    command:
+    - "/busybox/cat"
+    tty: true
+    volumeMounts:
+      - name: kaniko-secret
+        mountPath: /kaniko/.docker
+  volumes:
+    - name: kaniko-secret
+      secret:
+        secretName: docker-credentials
+"""
+        }
+    }
 
     environment {
         DOCKER_HUB_REPOSITORY = "ulucv/arf-case-study"
@@ -11,14 +35,13 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        // Create the Kubernetes secret dynamically
-                        sh """
+                        sh '''
                         kubectl delete secret docker-credentials --ignore-not-found
                         kubectl create secret docker-registry docker-credentials \
                           --docker-server=https://index.docker.io/v1/ \
                           --docker-username=$DOCKER_USERNAME \
                           --docker-password=$DOCKER_PASSWORD
-                        """
+                        '''
                     }
                 }
             }
@@ -26,35 +49,12 @@ pipeline {
 
         stage('Build and Push with Kaniko') {
             steps {
-                script {
-                    // Define Kubernetes Pod for Kaniko
-                    kubernetesYaml("""
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    app: kaniko-agent
-spec:
-  containers:
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:latest
-    args:
-      - "--context=dir:///workspace"
-      - "--dockerfile=/workspace/Dockerfile"
-      - "--destination=docker.io/${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}"
-    volumeMounts:
-      - name: kaniko-secret
-        mountPath: /kaniko/.docker
-  volumes:
-    - name: kaniko-secret
-      secret:
-        secretName: docker-credentials
-""")
-
-                    // Run the Kaniko container in Kubernetes
-                    container('kaniko') {
-                        sh 'echo "Building and pushing Docker image with Kaniko..."'
-                    }
+                container('kaniko') {
+                    sh """
+                    /kaniko/executor --context=dir:///workspace \
+                                     --dockerfile=/workspace/Dockerfile \
+                                     --destination=docker.io/${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}
+                    """
                 }
             }
         }
