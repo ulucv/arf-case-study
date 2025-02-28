@@ -1,41 +1,60 @@
 pipeline {
-    agent any
-    
+    agent none  // No agents needed
+
     environment {
-        DOCKER_HUB_REPOSITORY = "ulucv/arf-case-study"  // Replace with your Docker Hub repo
+        DOCKER_HUB_REPOSITORY = "ulucv/arf-case-study"
+        IMAGE_TAG = "latest"
     }
 
     stages {
-        stage('Build Docker Image') {
+        stage('Create Kubernetes Secret from Jenkins Credentials') {
             steps {
                 script {
-                    // Build the Docker image using Dockerfile from the repository
-                    GIT_COMMIT_SHA = sh(script: 'git rev-parse --short=8 HEAD', returnStdout: true).trim()
-                    IMAGE_TAG = "${GIT_COMMIT_SHA}"  // Use the last 8 digits of the commit SHA
-                    sh 'docker build -t ulucv/arf-case-study:${IMAGE_TAG} .'
-                }
-            }
-        }
-
-        stage('Login to Docker Hub') {
-            steps {
-                script {
-                    // Use the Jenkins credentials for Docker Hub login
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        // Login to Docker Hub
-                        sh '''
-                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-                        '''
+                        // Create the Kubernetes secret dynamically
+                        sh """
+                        kubectl delete secret docker-credentials --ignore-not-found
+                        kubectl create secret docker-registry docker-credentials \
+                          --docker-server=https://index.docker.io/v1/ \
+                          --docker-username=$DOCKER_USERNAME \
+                          --docker-password=$DOCKER_PASSWORD
+                        """
                     }
                 }
             }
         }
 
-        stage('Push Docker Image to Docker Hub') {
+        stage('Build and Push with Kaniko') {
             steps {
                 script {
-                    // Push the Docker image to Docker Hub
-                    sh 'docker push ${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}'
+                    // Define Kubernetes Pod for Kaniko
+                    kubernetesYaml("""
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: kaniko-agent
+spec:
+  containers:
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    args:
+      - "--context=dir:///workspace"
+      - "--dockerfile=/workspace/Dockerfile"
+      - "--destination=docker.io/${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}"
+    volumeMounts:
+      - name: kaniko-secret
+        mountPath: /kaniko/.docker
+  volumes:
+    - name: kaniko-secret
+      secret:
+        secretName: docker-credentials
+""")
+
+                    // Run the Kaniko container in Kubernetes
+                    container('kaniko') {
+                        sh 'echo "Building and pushing Docker image with Kaniko..."'
+                    }
                 }
             }
         }
@@ -43,7 +62,7 @@ pipeline {
 
     post {
         success {
-            echo "Image pushed to Docker Hub successfully: ${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}"
+            echo "Image pushed successfully: ${DOCKER_HUB_REPOSITORY}:${IMAGE_TAG}"
         }
         failure {
             echo "Pipeline failed. Please check the logs."
